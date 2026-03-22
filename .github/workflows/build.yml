@@ -1,0 +1,82 @@
+name: Build & Push Docker image to GHCR
+
+on:
+  push:
+    # Optionally also build on tags (recommended for releases)
+    tags:
+      - 'v*'
+
+  # Allow manual triggering from GitHub UI
+  workflow_dispatch:
+
+# Required for pushing to GHCR
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    name: Build → Push GHCR
+
+    steps:
+      # ────────────────────────────────────────────────
+      #  Checkout the repository
+      # ────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # useful if you use git describe / tags in build
+
+      # ────────────────────────────────────────────────
+      #  Docker meta – prepares tags & labels
+      # ────────────────────────────────────────────────
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ghcr.io/${{ github.repository }}
+          tags: |
+            # Latest on main branch
+            type=raw,value=latest,enable={{is_default_branch}}
+            # Branch name (sanitized)
+            type=ref,event=branch
+            # Tag name (v1.2.3 → 1.2.3, v1.2.3-rc.1 → 1.2.3-rc.1)
+            type=ref,event=tag
+            # Short SHA
+            type=sha,prefix=,suffix=,format=short
+
+      # ────────────────────────────────────────────────
+      #  Set up Docker Buildx (supports multi-platform builds)
+      # ────────────────────────────────────────────────
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ────────────────────────────────────────────────
+      #  Login to GitHub Container Registry
+      # ────────────────────────────────────────────────
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ────────────────────────────────────────────────
+      #  Build + push image
+      # ────────────────────────────────────────────────
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Optional but recommended:
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          # Uncomment if you want multi-platform builds
+          # platforms: linux/amd64,linux/arm64
+           platforms: linux/amd64
